@@ -104,6 +104,7 @@ let load = loader({
         credentials: cfg.taskcluster.credentials,
         monitor: monitor.prefix(cfg.app.buildTableName.toLowerCase()),
       });
+      console.log('BUILDS');
 
       await build.ensureTable();
       return build;
@@ -112,16 +113,21 @@ let load = loader({
 
   api: {
     requires: ['cfg', 'monitor', 'validator', 'github', 'publisher', 'Builds'],
-    setup: ({cfg, monitor, validator, github, publisher, Builds}) => api.setup({
-      context:          {publisher, cfg, github, Builds},
-      authBaseUrl:      cfg.taskcluster.authBaseUrl,
-      publish:          process.env.NODE_ENV === 'production',
-      baseUrl:          cfg.server.publicUrl + '/v1',
-      referencePrefix:  'github/v1/api.json',
-      aws:              cfg.aws,
-      monitor:          monitor.prefix('api'),
-      validator,
-    }),
+    setup: ({cfg, monitor, validator, github, publisher, Builds}) => {
+      console.log('before api');
+        let qqq = api.setup({
+          context:          {publisher, cfg, github, Builds},
+          authBaseUrl:      cfg.taskcluster.authBaseUrl,
+          publish:          process.env.NODE_ENV === 'production',
+          baseUrl:          cfg.server.publicUrl + '/v1',
+          referencePrefix:  'github/v1/api.json',
+          aws:              cfg.aws,
+          monitor:          monitor.prefix('api'),
+          validator,
+      });
+      console.log('after api');
+      return qqq;
+    }
   },
 
   server: {
