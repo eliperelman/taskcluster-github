@@ -70,7 +70,7 @@ staging:
     jobQueue: 'jobs'
     statusQueue: 'statuses'
     buildTableName: 'TaskclusterGithubBuildsStaging'
-    name: 'taskcluster-github-staging'
+    name: 'taskcluster-github-staging-debug1000'
 
   intree:
     provisionerId: 'aws-provisioner-v1'
