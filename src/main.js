@@ -34,10 +34,15 @@ let load = loader({
 
   validator: {
     requires: ['cfg'],
-    setup: ({cfg}) => validator({
-      prefix: 'github/v1/',
-      aws: cfg.aws,
-    }),
+    setup: ({cfg}) => {
+      console.log('HI');
+      let aaa = validator({
+        prefix: 'github/v1/',
+        aws: cfg.aws,
+      });
+      console.log('BYE');
+      return aaa;
+    },
   },
 
   docs: {
