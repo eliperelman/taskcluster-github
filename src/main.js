@@ -24,12 +24,17 @@ let load = loader({
 
   monitor: {
     requires: ['process', 'profile', 'cfg'],
-    setup: ({process, profile, cfg}) => monitor({
+    setup: ({process, profile, cfg}) => {
+      console.log('b monitor');
+      let qqq =monitor({
       project: cfg.app.name,
       credentials: cfg.taskcluster.credentials,
       mock: profile === 'test',
       process,
-    }),
+    });
+      console.log('a monitor');
+      return qqq;
+    },
   },
 
   validator: {
@@ -66,7 +71,9 @@ let load = loader({
 
   publisher: {
     requires: ['cfg', 'monitor', 'validator'],
-    setup: async ({cfg, monitor, validator}) => exchanges.setup({
+    setup: async ({cfg, monitor, validator}) => {
+      console.log('before publisher');
+      let qqq = exchanges.setup({
       credentials:        cfg.pulse,
       exchangePrefix:     cfg.app.exchangePrefix,
       validator:          validator,
@@ -74,18 +81,23 @@ let load = loader({
       publish:            process.env.NODE_ENV === 'production',
       aws:                cfg.aws,
       monitor:            monitor.prefix('publisher'),
-    }),
+    });
+      console.log('after publisher');
+      return qqq;
+    },
   },
 
   github: {
     requires: ['cfg'],
     setup: ({cfg}) => {
+      console.log('before gh');
       let github = new Github({
         promise: Promise,
       });
       if (cfg.github.credentials.token) {
         github.authenticate(cfg.github.credentials);
       }
+      console.log('after gh');
       return github;
     },
   },
@@ -98,13 +110,14 @@ let load = loader({
   Builds: {
     requires: ['cfg', 'monitor'],
     setup: async ({cfg, monitor}) => {
+      console.log('before BUILDS');
       var build = await data.Build.setup({
         account: cfg.azure.account,
         table: cfg.app.buildTableName,
         credentials: cfg.taskcluster.credentials,
         monitor: monitor.prefix(cfg.app.buildTableName.toLowerCase()),
       });
-      console.log('BUILDS');
+      console.log('after BUILDS');
 
       await build.ensureTable();
       return build;
