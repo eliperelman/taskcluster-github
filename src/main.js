@@ -19,7 +19,12 @@ let App = require('taskcluster-lib-app');
 let load = loader({
   cfg: {
     requires: ['profile'],
-    setup: ({profile}) => config({profile}),
+    setup: ({profile}) => {
+      console.log('before config');
+      let qwr= config({profile});
+        console.log('after config');
+      return qwr;
+    },
   },
 
   monitor: {
@@ -52,7 +57,9 @@ let load = loader({
 
   docs: {
     requires: ['cfg', 'validator', 'reference'],
-    setup: ({cfg, validator, reference}) => docs.documenter({
+    setup: ({cfg, validator, reference}) => {
+      console.log('before docs');
+      let r = docs.documenter({
       credentials: cfg.taskcluster.credentials,
       tier: 'core',
       schemas: validator.schemas,
@@ -66,7 +73,10 @@ let load = loader({
           reference: reference,
         },
       ],
-    }),
+    });
+      console.log('after docs');
+      return r;
+    },
   },
 
   publisher: {
@@ -147,7 +157,7 @@ let load = loader({
     requires: ['cfg', 'api', 'docs'],
     setup: ({cfg, api, docs}) => {
 
-      debug('Launching server.');
+      console.log('Launching server.');
       let app = App(cfg.server);
       app.use('/v1', api);
       return app.createServer();
@@ -182,6 +192,7 @@ let load = loader({
 }, ['profile', 'process']);
 
 if (!module.parent) {
+  console.log('A');
   load(process.argv[2], {
     process: process.argv[2],
     profile: process.env.NODE_ENV,
@@ -189,6 +200,7 @@ if (!module.parent) {
     console.log(err.stack);
     process.exit(1);
   });
+  console.log('B');
 }
 
 // Export load for tests
