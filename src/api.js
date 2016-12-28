@@ -15,6 +15,7 @@ function sanitizeGitHubField(field) {
 // Reduce a pull request WebHook's data to only fields needed to checkout a
 // revision
 function getPullRequestDetails(eventData) {
+  eventData.pull_request.head.user = null;
   return {
     'event.type': 'pull_request.' + eventData.action,
     'event.base.repo.branch': eventData.pull_request.base.label.split(':')[1],
