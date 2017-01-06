@@ -49,6 +49,7 @@ function completeInTreeConfig(config, payload) {
           GITHUB_HEAD_BRANCH: payload.details['event.head.repo.branch'],
           GITHUB_HEAD_REF: payload.details['event.ref'],
           GITHUB_HEAD_USER_EMAIL: payload.details['event.head.user.email'],
+          GITHUB_INSTALLATION_ID: payload.installationID,
         }
       );
     }

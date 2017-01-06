@@ -1,10 +1,11 @@
-let debug = require('debug')('taskcluster-github');
+let debug = require('debug')('taskcluster-github:handlers');
 let taskcluster = require('taskcluster-client');
 let slugid = require('slugid');
 let yaml = require('js-yaml');
 let assert = require('assert');
 let EventEmitter = require('events');
 let _ = require('lodash');
+let Promise = require('promise');
 
 let INSPECTOR_URL = 'https://tools.taskcluster.net/task-group-inspector/#/';
 
@@ -24,6 +25,7 @@ let INSPECTOR_URL = 'https://tools.taskcluster.net/task-group-inspector/#/';
  */
 class Handlers {
   constructor({credentials, monitor, reference, jobQueueName, statusQueueName, intree, context}) {
+    debug('Constructing handlers...');
     assert(credentials.username, 'credentials.username must be provided');
     assert(credentials.password, 'credentials.password must be provided');
     assert(monitor, 'monitor is required for statistics');
@@ -48,6 +50,7 @@ class Handlers {
    * connected to a pulse connection (used for tests).
    */
   async setup(options) {
+    debug('Setting up handlers...');
     options = options || {};
     assert(this.connection === null, 'Cannot setup twice!');
     if (!options.noConnect) {
@@ -83,7 +86,7 @@ class Handlers {
 
     const callHandler = (name, handler) => message => {
       handler.call(this, message).catch(err => {
-        debug(`error (reported to sentry) while calling ${name} handler: ${err}`);
+        debug(`Error (reported to sentry) while calling ${name} handler: ${err}`);
         this.monitor.reportError(err);
       }).then(() => {
         if (this.handlerComplete) {
@@ -116,16 +119,23 @@ module.exports = Handlers;
 
 /**
  * Post updates to GitHub, when the status of a task changes.
- * TaskCluster States: http://docs.taskcluster.net/queue/exchanges/
+ * TaskCluster States: https://docs.taskcluster.net/reference/platform/queue/references/events
  * GitHub Statuses: https://developer.github.com/v3/repos/statuses/
  **/
 async function statusHandler(message) {
   let taskGroupId = message.payload.taskGroupId || message.payload.status.taskGroupId;
-  debug(`handling state change for task-group ${taskGroupId}`);
+  debug(`Handling state change for task-group ${taskGroupId}`);
 
-  let build = await this.context.Builds.load({
-    taskGroupId,
-  });
+  try {
+    debug('Trying to load the build...');
+    var build = await this.context.Builds.load({
+      taskGroupId,
+    });
+    debug(`Got the build: ${JSON.stringify(build)}`);
+  } catch (e) {
+    debug(`Failed to load the build! Error: ${JSON.stringify(e)}`);
+    throw e;
+  }
 
   if (build.state === 'failure') {
     debug('Task group already marked as failure. Continuing.');
@@ -137,14 +147,30 @@ async function statusHandler(message) {
     state = 'failure';
   }
 
-  await build.modify((b) => {
-    b.state = state;
-    b.updated = new Date();
-  });
+  try {
+    debug('Trying to modify the build...');
+    await build.modify((b) => {
+      b.state = state;
+      b.updated = new Date();
+    });
+  } catch (e) {
+    debug('Failed to modify the build!');
+    throw e;
+  }
+
+  // Authenticating as installation.
+  try {
+    debug('Authenticating as installation in status handler...');
+    var instGithub = await this.context.github.getInstallationGithub(build.installationID);
+    debug('Authorized as installation in status handler');
+  } catch (e) {
+    debug(`Error authenticating as installation in status handler! Error: ${e}`);
+    throw e;
+  }
 
   debug(`Attempting to update status for ${build.organization}/${build.repository}@${build.sha} (${state})`);
   try {
-    await this.context.github.repos.createStatus({
+    await instGithub.repos.createStatus({
       owner: build.organization,
       repo: build.repository,
       sha: build.sha,
@@ -166,6 +192,17 @@ async function statusHandler(message) {
 async function jobHandler(message) {
   let context = this.context;
 
+  // Authenticating as installation.
+  try {
+    debug(`Authenticating as installation ${message.payload.installationID} 
+      to handle ${message.payload.details['event.type']}`);
+    var instGithub = await context.github.getInstallationGithub(message.payload.installationID);
+    debug('Authorized as installation in jobHandler');
+  } catch (e) {
+    debug('Error authenticating as installation in jobHandler!');
+    throw e;
+  }  
+
   // We must attempt to convert the sanitized fields back to normal here. 
   // Further discussion of how to deal with this cleanly is in
   // https://github.com/taskcluster/taskcluster-github/issues/52
@@ -173,7 +210,8 @@ async function jobHandler(message) {
   let repository = message.payload.repository.replace(/%/g, '.');
   let sha = message.payload.details['event.head.sha'];
   if (!sha) {
-    let commitInfo = await context.github.repos.getShaOfCommitRef({
+    debug('Trying to get commit info in job handler...');
+    let commitInfo = await instGithub.repos.getShaOfCommitRef({
       owner: organization,
       repo: repository,
       ref: `tags/${message.payload.details['event.version']}`,
@@ -186,7 +224,8 @@ async function jobHandler(message) {
 
   // Try to fetch a .taskcluster.yml file for every request
   try {
-    let tcyml = await context.github.repos.getContent({
+    debug('Trying to fetch the YML...');
+    let tcyml = await instGithub.repos.getContent({
       owner: organization,
       repo: repository,
       path: '.taskcluster.yml',
@@ -220,9 +259,11 @@ async function jobHandler(message) {
     return;
   }
 
+  debug('Checking collaborator...');
+
   // Decide if a user has permissions to run tasks.
   let login = message.payload.details['event.head.user.login'];
-  if (! await isCollaborator({login, organization, repository, sha, context})) {
+  if (! await isCollaborator({login, organization, repository, sha, instGithub})) {
     return;
   }
 
@@ -236,17 +277,21 @@ async function jobHandler(message) {
     });
     if (graphConfig.tasks.length) {
       let taskGroupId = graphConfig.tasks[0].task.taskGroupId;
+      debug('Creating queue...');
       let queue = new taskcluster.Queue({
         baseUrl: context.cfg.taskcluster.queueBaseUrl,
         credentials: context.cfg.taskcluster.credentials,
         authorizedScopes: graphConfig.scopes,
       });
+      debug('Creating tasks...');
       await Promise.all(graphConfig.tasks.map(t => queue.createTask(t.taskId, t.task)));
 
       // We used to comment on every commit, but setting the status
       // is a nicer thing to do instead. It contains all of the same
       // information.
-      await context.github.repos.createStatus({
+
+      debug('Trying to create status...');
+      await instGithub.repos.createStatus({
         owner: organization,
         repo: repository,
         sha,
@@ -265,6 +310,7 @@ async function jobHandler(message) {
         state: 'pending',
         created: now,
         updated: now,
+        installationID: message.payload.installationID,
       }).catch(async (err) => {
         if (err.code !== 'EntityAlreadyExists') {
           throw err;
@@ -289,7 +335,7 @@ async function jobHandler(message) {
     }
     // Warn the user know that there was a problem processing their
     // config file with a comment.
-    await context.github.repos.createCommitComment({
+    await instGithub.repos.createCommitComment({
       owner: organization,
       repo: repository,
       sha,
@@ -300,7 +346,7 @@ async function jobHandler(message) {
   }
 }
 
-async function isCollaborator({login, organization, repository, sha, context}) {
+async function isCollaborator({login, organization, repository, sha, instGithub}) {
   if (login === organization) {
     debug(`Checking collaborator: ${login} === ${organization}: True!`);
     return true;
@@ -309,7 +355,7 @@ async function isCollaborator({login, organization, repository, sha, context}) {
   // If the user is in the org, we consider them
   // qualified to trigger any job in that org.
   try {
-    await context.github.orgs.checkMembership({
+    await instGithub.orgs.checkMembership({
       org: organization,
       owner: login,
     });
@@ -327,7 +373,7 @@ async function isCollaborator({login, organization, repository, sha, context}) {
   // GithubAPI's collaborator check returns an error if a user isn't
   // listed as a collaborator.
   try {
-    await context.github.repos.checkCollaborator({
+    await instGithub.repos.checkCollaborator({
       owner: organization,
       repo: repository,
       collabuser: login,
@@ -343,7 +389,7 @@ async function isCollaborator({login, organization, repository, sha, context}) {
       let msg = `Taskcluster does not have permission to check for repository collaborators.
         Ensure that it is a member of a team with __write__ access to this repository!`;
       debug(`Insufficient permissions to check for collaborators of ${organization}/${repository}. Skipping.`);
-      await context.github.repos.createCommitComment({
+      await instGithub.repos.createCommitComment({
         owner: organization,
         repo: repository,
         sha,
@@ -359,7 +405,7 @@ async function isCollaborator({login, organization, repository, sha, context}) {
   // and ignore the request
   let msg = `@${login} does not have permission to trigger tasks.`;
   debug(`${login} does not have permissions for ${organization}/${repository}. Skipping.`);
-  await context.github.repos.createCommitComment({
+  await instGithub.repos.createCommitComment({
     owner: organization,
     repo: repository,
     sha,

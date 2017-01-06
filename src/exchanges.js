@@ -31,6 +31,11 @@ let commonRoutingKey = function(options) {
                         'characters aside from - and _ have been stripped.',
       maxSize:          100,
       required:         true,
+    }, {
+      name:             'installationID',
+      summary:          'The installation which had an event.',
+      maxSize:          10,
+      required:         true,
     },
   ];
   if (options.hasActions) {
@@ -77,7 +82,7 @@ exchanges.declare({
   routingKey:         commonRoutingKey({hasActions: true}),
   schema:             SCHEMA_PREFIX_CONST + 'github-pull-request-message.json#',
   messageBuilder:     commonMessageBuilder,
-  routingKeyBuilder:  msg => _.pick(msg, 'organization', 'repository', 'action'),
+  routingKeyBuilder:  msg => _.pick(msg, 'organization', 'repository', 'action', 'installationID'),
   CCBuilder:          () => [],
 });
 
@@ -94,7 +99,7 @@ exchanges.declare({
   routingKey:         commonRoutingKey(),
   schema:             SCHEMA_PREFIX_CONST + 'github-push-message.json#',
   messageBuilder:     commonMessageBuilder,
-  routingKeyBuilder:  msg => _.pick(msg, 'organization', 'repository'),
+  routingKeyBuilder:  msg => _.pick(msg, 'organization', 'repository', 'installationID'),
   CCBuilder:          () => [],
 });
 
@@ -111,7 +116,7 @@ exchanges.declare({
   routingKey:         commonRoutingKey(),
   schema:             SCHEMA_PREFIX_CONST + 'github-release-message.json#',
   messageBuilder:     commonMessageBuilder,
-  routingKeyBuilder:  msg => _.pick(msg, 'organization', 'repository'),
+  routingKeyBuilder:  msg => _.pick(msg, 'organization', 'repository', 'installationID'),
   CCBuilder:          () => [],
 });
 

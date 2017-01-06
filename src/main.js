@@ -1,4 +1,4 @@
-let debug = require('debug')('taskcluster-github');
+let debug = require('debug')('taskcluster-github:loader');
 let api = require('./api');
 let path = require('path');
 let Promise = require('promise');
@@ -15,6 +15,8 @@ let validator = require('taskcluster-lib-validate');
 let loader = require('taskcluster-lib-loader');
 let docs = require('taskcluster-lib-docs');
 let App = require('taskcluster-lib-app');
+let jwt = require('jsonwebtoken');
+let fs = require('fs');
 
 let load = loader({
   cfg: {
@@ -74,14 +76,45 @@ let load = loader({
 
   github: {
     requires: ['cfg'],
-    setup: ({cfg}) => {
+    setup: async ({cfg}) => {
       let github = new Github({
         promise: Promise,
       });
-      if (cfg.github.credentials.token) {
-        github.authenticate(cfg.github.credentials);
-      }
-      return github;
+
+      // This object insures that the authentication is delayed until we need it.
+      // Also, the authentication happens not just once in the beginning, but for each request.
+      return {
+        getInstallationGithub: async (inst_id) => {
+          let inteToken = jwt.sign(
+            {
+              iss: cfg.github.credentials.integrationID
+            },
+            cfg.github.credentials.privatePEM,
+            {
+              algorithm: 'RS256',
+              expiresIn: '1m',
+            }
+          );
+          debug('Authenticating as integration...');
+          try {
+            github.authenticate({type: 'integration', token: inteToken});
+            debug('Authenticated as integration');
+          } catch (e) {
+            debug('Authentication as integration failed!');
+            throw e;
+          }
+          var instaToken = await github.integrations.createInstallationToken({
+            installation_id: inst_id,
+          });
+          debug(`Obtained installation token: ${instaToken.token}`);
+          let gh = new Github({promise: Promise});
+          gh.authenticate({
+            type: 'token',
+            token: instaToken.token,
+          });
+          return gh;
+        },
+      };
     },
   },
 
@@ -162,7 +195,7 @@ if (!module.parent) {
     process: process.argv[2],
     profile: process.env.NODE_ENV,
   }).catch(err => {
-    console.log(err.stack);
+    console.log(err.stack || err);
     process.exit(1);
   });
 }

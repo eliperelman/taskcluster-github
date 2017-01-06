@@ -12,6 +12,10 @@ identifier-pattern:     "^([a-zA-Z0-9-_]*)$"
 identifier-min-length:  1
 identifier-max-length:  22
 
+github-installation-pattern:  "^[0-9]+$"
+github-installation-min-length: 1
+github-installation-max-length: 10
+
 # Slugid pattern, for when-ever that is useful
 # Currently allow all v4 slugs, although we only generate nice slugs
 # See https://www.npmjs.com/package/slugid for more info

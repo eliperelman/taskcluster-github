@@ -19,5 +19,6 @@ module.exports.Build = Entity.configure({
     state: Entity.types.String,
     created: Entity.types.Date,
     updated: Entity.types.Date,
+    installationID: Entity.types.Number,
   },
 });
